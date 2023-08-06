@@ -30,14 +30,17 @@ $userAgentMiddleware = function (Request $request, RequestHandler $handler): Res
 
 // Middleware that makes sure the Auth Token is set
 $authenticationMiddleware = function (Request $request, RequestHandler $handler) use ($db, $gameDb) {
-    $token = $request->getHeaderLine('Authorization');
-
-    if (!$token) {
+    $authHeader = $request->getHeaderLine('Authorization');
+    
+    if (!$authHeader) {
         $response = new \Slim\Psr7\Response();
         $response->getBody()->write(json_encode(['error' => 'No token provided']));
         return $response->withStatus(StatusCodeInterface::STATUS_UNAUTHORIZED);
     }
+    
     // Check if the token is valid and get the player_name and last_active
+    $token = str_replace('Bearer ', '', $authHeader);
+
     $sessionStmt = $db->prepare('SELECT player_name as name, last_active FROM sessions WHERE token = :token AND logged_out IS NULL;');
     $sessionStmt->bindValue(':token', $token);
 

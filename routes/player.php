@@ -56,7 +56,7 @@ $app->post('/login', function (Request $request, Response $response, array $args
         $newSessionStmt->bindValue(':token', $token);
         
         if($newSessionStmt->execute()) {
-            $response = $response->withHeader('Authorization', $token);
+            $response = $response->withHeader('Authorization', 'Bearer ' . $token);
             
             $response->getBody()->write(json_encode([
                 'token'   => $token,
