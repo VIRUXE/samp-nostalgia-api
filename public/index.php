@@ -37,7 +37,13 @@ $authenticationMiddleware = function (Request $request, RequestHandler $handler)
         $response->getBody()->write(json_encode(['error' => 'No token provided']));
         return $response->withStatus(StatusCodeInterface::STATUS_UNAUTHORIZED);
     }
-    
+
+    if(!str_contains($authHeader, "Bearer")) {
+        $response = new \Slim\Psr7\Response();
+        $response->getBody()->write(json_encode(['error' => 'Stop being silly.']));
+        return $response->withStatus(StatusCodeInterface::STATUS_EXPECTATION_FAILED);
+    }
+
     // Check if the token is valid and get the player_name and last_active
     $token = str_replace('Bearer ', '', $authHeader);
 
