@@ -50,6 +50,10 @@ class IMGArchive {
         }
     }
 
+    public function exists($name) {
+        return isset($this->entries[$name]);
+    }
+
     public function add($name, $data) {
         $this->pendingAdditions[$name] = $data;
     }
