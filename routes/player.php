@@ -41,12 +41,11 @@ $app->post('/login', function (Request $request, Response $response, array $args
         $existingSessionStmt->bindValue(':nickname', $loginData['nickname']);
 
         $existingSessionResult = $existingSessionStmt->execute();
-        $existingSessionToken  = $existingSessionResult->fetchArray(SQLITE3_ASSOC)['token'];
 
-        if ($existingSessionToken) { // Player had a previous unclosed session - close it
+        if ($existingSessionResult) { // Player had a previous unclosed session - close it
             // Set the logged_out time for the existing session to the current timestamp
-            $logoutStmt = $db->prepare('UPDATE sessions SET logged_out = CURRENT_TIMESTAMP WHERE token = :existingSessionToken');
-            $logoutStmt->bindValue(':existingSessionToken', $existingSessionToken);
+            $logoutStmt = $db->prepare("UPDATE sessions SET logged_out = strftime('%s', 'now') WHERE token = :existingSessionToken");
+            $logoutStmt->bindValue(':existingSessionToken', $existingSessionResult->fetchArray(SQLITE3_ASSOC)['token']);
             $logoutStmt->execute();
         }
 
@@ -78,20 +77,19 @@ $app->post('/login', function (Request $request, Response $response, array $args
 });
 
 $app->post('/logout', function (Request $request, Response $response, array $args) use ($db) {
-    $stmt = $db->prepare('UPDATE sessions SET logged_out = CURRENT_TIMESTAMP WHERE token = :token');
-    $stmt->bindValue(':token', $request->getHeaderLine('Authorization'));
+    $stmt = $db->prepare("UPDATE sessions SET logged_out = strftime('%s', 'now') WHERE token = :token");
+    $stmt->bindValue(':token', $request->getAttribute('token'));
+    $stmt->execute();
 
-    $result = $stmt->execute();
-
-    return $response->withStatus($result ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
+    return $response->withStatus($db->changes() > 0 ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
 })->add($authenticationMiddleware);
 
 $app->get('/ping', function (Request $request, Response $response) use ($db) {
-    $stmt = $db->prepare("UPDATE sessions SET last_active = CURRENT_TIMESTAMP WHERE token = :token");
-    $stmt->bindValue(':token', $request->getHeaderLine('Authorization'));
-    $result = $stmt->execute();
+    $stmt = $db->prepare("UPDATE sessions SET last_active = strftime('%s', 'now') WHERE token = :token");
+    $stmt->bindValue(':token', $request->getAttribute('token'));
+    $stmt->execute();
 
-    return $response->withStatus($result ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
+    return $response->withStatus($db->changes() > 0 ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
 })->add($authenticationMiddleware);
 
 $app->post('/play', function (Request $request, Response $response, array $args) use ($db) {

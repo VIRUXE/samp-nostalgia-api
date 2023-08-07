@@ -12,9 +12,9 @@ CREATE TABLE sessions (
     token TEXT NOT NULL UNIQUE,
     player_name TEXT,
     auth_code TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    last_active TEXT DEFAULT CURRENT_TIMESTAMP,
-    logged_out TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    last_active INTEGER DEFAULT (strftime('%s', 'now')),
+    logged_out INTEGER,
     FOREIGN KEY(player_name) REFERENCES players(name)
 );
 
