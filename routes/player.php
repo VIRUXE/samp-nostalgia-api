@@ -50,10 +50,11 @@ $app->post('/login', function (Request $request, Response $response, array $args
         }
 
         // Store the new token into the database without generating "auth_code" here
-        $newSessionStmt = $db->prepare('INSERT INTO sessions (player_name, token) VALUES (:nickname, :token)');
-        $newSessionStmt->bindValue(':nickname', $loginData['nickname']);
+        $newSessionStmt = $db->prepare('INSERT INTO sessions (token, player_name, hwid) VALUES (:token, :nickname, :hwid)');
         $newSessionStmt->bindValue(':token', $token);
-        
+        $newSessionStmt->bindValue(':nickname', $loginData['nickname']);
+        $newSessionStmt->bindValue(':hwid', $loginData['serial']);
+
         if($newSessionStmt->execute()) {
             $response = $response->withHeader('Authorization', 'Bearer ' . $token);
             
@@ -84,7 +85,7 @@ $app->post('/logout', function (Request $request, Response $response, array $arg
     return $response->withStatus($db->changes() > 0 ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
 })->add($authenticationMiddleware);
 
-$app->get('/ping', function (Request $request, Response $response) use ($db) {
+$app->post('/ping', function (Request $request, Response $response) use ($db) {
     $stmt = $db->prepare("UPDATE sessions SET last_active = strftime('%s', 'now') WHERE token = :token");
     $stmt->bindValue(':token', $request->getAttribute('token'));
     $stmt->execute();
@@ -93,48 +94,113 @@ $app->get('/ping', function (Request $request, Response $response) use ($db) {
 })->add($authenticationMiddleware);
 
 $app->post('/play', function (Request $request, Response $response, array $args) use ($db) {
+    $gtaSnapshotPath = '../gta_fs_cache.json';
+    $gtaSnapshot     = [];
+
+    // Make sure we have a directory snapshot of our GTA files
+    if (!file_exists($gtaSnapshotPath)) {
+        function createDirectorySnapshot($dir) {
+            $data = [];
+        
+            foreach (new DirectoryIterator($dir) as $fileInfo) {
+                if ($fileInfo->isDot()) continue;
+        
+                if ($fileInfo->isDir())
+                    $data[$fileInfo->getFilename()] = createDirectorySnapshot($fileInfo->getPathname());
+                else
+                    $data[$fileInfo->getFilename()] = $fileInfo->getSize();
+            }
+        
+            return $data;
+        }
+
+        $gtaSnapshot = ["root" => createDirectorySnapshot('../gta')];
+
+        file_put_contents($gtaSnapshotPath, json_encode($gtaSnapshot, JSON_PRETTY_PRINT));
+    } else
+        $gtaSnapshot = json_decode(file_get_contents($gtaSnapshotPath), true);
+
     $fileList = $request->getParsedBody();
 
     if (!$fileList || !is_array($fileList)) return $response->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);
 
-    function isFileBlacklisted($filePath) {
-        return in_array($filePath, [
-            'folder/blacklisted_file.extension',
-            'folder/another_blacklisted_file.extension'
-        ]);
+    function countFilesInSnapshot($snapshot) {
+        $count = 0;
+        foreach ($snapshot as $key => $value) {
+            if (is_array($value)) // Directory
+                $count += countFilesInSnapshot($value);
+            else // File
+                $count++;
+        }
+        return $count;
     }
 
-    function doesFileSizeMatch($filePath, $fileSize) {
-        $localGameFile = '../gta/' . $filePath;
+    function validateFiles($clientSnapshot, $serverSnapshot, &$badFiles, $currentPath = '') {
+        foreach ($clientSnapshot as $key => $value) {
+            $filePath = $currentPath ? $currentPath . '/' . $key : $key;
+    
+            if (is_array($value)) // Directory
+                validateFiles($value, $serverSnapshot[$key], $badFiles, $filePath);
+            else { // File
+                if (!isset($serverSnapshot[$key])) { // File doesn't exist in our snapshot
+                    $badFiles['unknown'][] = $filePath;
 
-        if (!file_exists($localGameFile)) return false; // File does not exist
+                    // Check if the file is blacklisted
+                    $filenameWithExtension    = basename($key);
+                    $filenameWithoutExtension = pathinfo($key, PATHINFO_FILENAME);
+                
+                    // We check against both the complete filename (with its extension) and just the filename (without extension) in the blacklist
+                    foreach ([
+                        's0beit.exe',
+                        'another_blacklisted_file.extension'
+                    ] as $blacklistedFile) {
+                        // Extract filename and extension from the blacklisted file
+                        $blacklistedFilenameWithExtension    = basename($blacklistedFile);
+                        $blacklistedFilenameWithoutExtension = pathinfo($blacklistedFile, PATHINFO_FILENAME);
+                        
+                        if (
+                            $filenameWithExtension == $blacklistedFilenameWithExtension ||
+                            $filenameWithoutExtension == $blacklistedFilenameWithoutExtension
+                        ) {
+                            // Remove from unknown and add to blacklisted
+                            array_pop($badFiles['unknown']);
+                            $badFiles['blacklisted'][] = $filePath;
+                        }
+                    }
 
-        return filesize($localGameFile) === $fileSize;
+                    continue;
+                }
+    
+                // Diff file size
+                if ($serverSnapshot[$key] != $value) $badFiles['invalid_size'][] = $filePath;
+            }
+        }
+    }
+
+    $clientFileCount = countFilesInSnapshot($fileList);
+    $serverFileCount = countFilesInSnapshot($gtaSnapshot);
+
+    if ($clientFileCount !== $serverFileCount) {
+        $response->getBody()->write(json_encode([
+            'status' => 'error',
+            'message' => 'Mismatched file count.'
+        ]));
+
+        return $response->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);    
     }
 
     $badFiles = [
         'blacklisted'  => [],
         'invalid_size' => [],
+        'unknown'      => []
     ];
 
     // Loop through each file in the payload and check if any are blacklisted of have an invalid size
-    foreach ($fileList as $fileInfo) {
-        $filePath = $fileInfo[0];
-        $fileSize = $fileInfo[1];
-
-        // Check if the file is blacklisted
-        if (isFileBlacklisted($filePath)) {
-            $badFiles['blacklisted'][] = $filePath;
-            continue;
-        }
-
-        // Check if the file size is valid
-        if (!doesFileSizeMatch($filePath, $fileSize)) $badFiles['invalid_size'][] = $filePath;
-    }
+    validateFiles($fileList, $gtaSnapshot, $badFiles);
 
     // If there are offending files, send the list back to the client
-    if (!empty($badFiles['blacklisted']) || !empty($badFiles['invalid_size'])) {
-        $response->getBody()->write(json_encode(['bad_files' => $badFiles]));
+    if (!empty($badFiles['unknown']) || !empty($badFiles['blacklisted']) || !empty($badFiles['invalid_size'])) {
+        $response->getBody()->write(json_encode($badFiles));
         return $response->withStatus(StatusCodeInterface::STATUS_CONFLICT)->withHeader('Content-Type', 'application/json');
     }
 
@@ -142,7 +208,7 @@ $app->post('/play', function (Request $request, Response $response, array $args)
     $authCode = rand(100000, 999999);
 
     $stmt = $db->prepare('UPDATE sessions SET auth_code = :auth_code WHERE token = :token');
-    $stmt->bindValue(':token', $request->getHeaderLine('Authorization'));
+    $stmt->bindValue(':token', $request->getAttribute('token'));
     $stmt->bindValue(':auth_code', $authCode);
 
     $result = $stmt->execute();
