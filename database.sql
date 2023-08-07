@@ -11,6 +11,7 @@ CREATE TABLE sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     token TEXT NOT NULL UNIQUE,
     player_name TEXT,
+    hwid TEXT,
     auth_code TEXT,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     last_active INTEGER DEFAULT (strftime('%s', 'now')),
@@ -20,6 +21,12 @@ CREATE TABLE sessions (
 
 CREATE INDEX idx_sessions_token ON sessions(token);
 CREATE INDEX idx_sessions_player_name ON sessions(player_name);
+
+CREATE TABLE banned_hwids (
+    hwid TEXT PRIMARY KEY,
+    banned_at INTEGER DEFAULT (strftime('%s', 'now')),
+    reason TEXT
+);
 
 CREATE TABLE messages (
     player_name TEXT PRIMARY KEY,
