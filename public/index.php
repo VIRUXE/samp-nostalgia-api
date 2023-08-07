@@ -66,24 +66,29 @@ $authenticationMiddleware = function (Request $request, RequestHandler $handler)
     $interval = $currentDateTime->diff($lastActiveTime);
     
     // Check if the difference is more than one minute
-    if ($interval->i >= 1 || $interval->h > 0 || $interval->d > 0 || $interval->y > 0) {
+    /* if ($interval->i >= 1 || $interval->h > 0 || $interval->d > 0 || $interval->y > 0) {
         // Update the logged_out field to close the session
-        $updateStmt = $db->prepare("UPDATE sessions SET logged_out = strftime('%s', 'now') WHERE token = :token");
-        $updateStmt->bindValue(':token', $token);
-        $updateStmt->execute();
+        $logoutStmt = $db->prepare("UPDATE sessions SET logged_out = strftime('%s', 'now') WHERE token = :token");
+        $logoutStmt->bindValue(':token', $token);
+        $logoutStmt->execute();
     
         $response = new \Slim\Psr7\Response();
         $response->getBody()->write(json_encode(['error' => 'Last active session is more than a minute old']));
         return $response->withStatus(StatusCodeInterface::STATUS_EXPECTATION_FAILED);
-    }
+    } */
 
     // Get the admin level if any
-    $playerStmt = $gameDb->prepare('SELECT level FROM Admins WHERE name = :name;');
-    $playerStmt->bindValue(':name', $sessionData['name']);
+    $playerLevelStmt = $gameDb->prepare('SELECT level FROM Admins WHERE name = :name;');
+    $playerLevelStmt->bindValue(':name', $sessionData['name']);
+
+    // Passed all checks, now update the last_active field for the session
+    $updateActiveStmt = $db->prepare("UPDATE sessions SET last_active = strftime('%s', 'now') WHERE token = :token");
+    $updateActiveStmt->bindValue(':token', $token);
+    $updateActiveStmt->execute();
 
     $request = $request->withAttribute('token', $token)
                         ->withAttribute('player_name', $sessionData['name'])
-                         ->withAttribute('player_level', $playerStmt->execute()->fetchArray(SQLITE3_ASSOC)['level'] ?? null);
+                         ->withAttribute('player_level', $playerLevelStmt->execute()->fetchArray(SQLITE3_ASSOC)['level'] ?? null);
 
     // Pass the request to the next middleware
     return $handler->handle($request);
