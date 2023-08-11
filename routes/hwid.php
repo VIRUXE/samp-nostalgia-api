@@ -3,11 +3,10 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Fig\Http\Message\StatusCodeInterface;
 
-$app->get('/hwid', function (Request $request, Response $response) use ($db) {
-    $params = $request->getQueryParams();
-    $hwid   = isset($params['hwid']) ? $params['hwid'] : null;
+$app->get('/hwid/{hwid}', function (Request $request, Response $response, array $args) use ($db) {
+    $hwid = $args['hwid'];
 
-    if (!$hwid) return $response->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);
+    if(!isValidHWID($hwid)) $response->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);
 
     $stmt = $db->prepare("SELECT banned_at, reason FROM banned_hwids WHERE hwid = :hwid");
     $stmt->bindValue(':hwid', $hwid);
