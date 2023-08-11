@@ -95,6 +95,67 @@ $authenticationMiddleware = function (Request $request, RequestHandler $handler)
 };
 
 $app->get('/', function (Request $request, Response $response, $args) {
+    $lang = getPreferredLanguage($request->getHeaderLine('Accept-Language'));
+
+    $translations = [
+        'en' => [
+            'title'       => 'Download Nostalgia Launcher',
+            'description' => 'This download is for the Nostalgia Launcher which is a part of Scavenge Nostalgia.<br>The launcher serves as a game manager and anti-cheat.<br>It can install the entire game and/or SA-MP. Stops most hacks and manage IMG archives, allowing for server-specific GTA files to be handled within those archives.',
+            'download'    => 'Download'
+        ],
+        'pt' => [
+            'title'       => 'Baixar o Nostalgia Launcher',
+            'description' => 'Este download é para o Nostalgia Launcher, que é parte do servidor Scavenge Nostalgia.<br>O lançador funciona como um gerenciador de jogo e anti-cheat.<br>Ele consegue instalar o jogo inteiro e/ou o SA-MP. Impede hacks e gerencia arquivos IMG, permitindo que arquivos específicos (objetos para itens e etc) do servidor sejam gerenciados dentro desses arquivos.',
+            'download'    => 'Baixar'
+        ]
+    ];
+
+    $currentTranslations = $translations[$lang];
+
+    $html = "
+        <!DOCTYPE html>
+        <html lang=\"$lang\">
+        <head>
+            <meta charset=\"UTF-8\">
+            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+            <title>Download Nostalgia</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    background-color: #f2f2f2;
+                }
+                
+                .container {
+                    text-align: center;
+                    opacity: 0;
+                    transition: opacity 1.5s;
+                }
+            </style>
+            <script>
+                window.onload = function() {
+                    document.querySelector(\".container\").style.opacity = \"1\";
+                };
+            </script>
+        </head>
+        <body>
+            <div class=\"container\">
+                <h2>{$currentTranslations['title']}</h2>
+                <p>{$currentTranslations['description']}</p>
+                <a href=\"/download\" class=\"btn\">{$currentTranslations['download']}</a>
+            </div>
+        </body>
+        </html>
+    ";
+
+    $response->getBody()->write($html);
+    return $response->withHeader('Content-Type', 'text/html');
+});
+
+$app->get('/download', function (Request $request, Response $response, $args) {
     $file = __DIR__ . '/nostalgia.zip';
     
     if (!file_exists($file)) throw new HttpNotFoundException($request);
@@ -134,6 +195,17 @@ $app->get('/manifest', function (Request $request, Response $response, array $ar
         ->withHeader('Content-Type', 'application/json')
         ->withStatus(StatusCodeInterface::STATUS_OK);
 });
+
+function getPreferredLanguage($header) {
+    foreach (explode(',', $header) as $lang) {
+        $langParts = explode(';', $lang);
+        $code      = strtolower(trim($langParts[0]));
+
+        if (strpos($code, 'pt-br') === 0 || strpos($code, 'pt-pt') === 0) return 'pt';
+    }
+    
+    return 'en'; // default
+}
 
 // Load up route files
 foreach (glob(__DIR__ . '/../routes/*.php') as $routeFile) require $routeFile;
