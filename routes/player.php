@@ -49,6 +49,9 @@ $app->post('/login', function (Request $request, Response $response, array $args
             $logoutStmt->execute();
         }
 
+        // Check if we're being given a correct serial, just in case
+        if(!isValidHWID($loginData['serial'])) return $response->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);
+
         // Store the new token into the database without generating "auth_code" here
         $newSessionStmt = $db->prepare('INSERT INTO sessions (token, player_name, hwid) VALUES (:token, :nickname, :hwid)');
         $newSessionStmt->bindValue(':token', $token);
@@ -126,12 +129,14 @@ $app->post('/play', function (Request $request, Response $response, array $args)
 
     function countFilesInSnapshot($snapshot) {
         $count = 0;
+
         foreach ($snapshot as $key => $value) {
             if (is_array($value)) // Directory
                 $count += countFilesInSnapshot($value);
             else // File
                 $count++;
         }
+
         return $count;
     }
 
@@ -181,10 +186,7 @@ $app->post('/play', function (Request $request, Response $response, array $args)
     $serverFileCount = countFilesInSnapshot($gtaSnapshot);
 
     if ($clientFileCount !== $serverFileCount) {
-        $response->getBody()->write(json_encode([
-            'status' => 'error',
-            'message' => 'Mismatched file count.'
-        ]));
+        $response->getBody()->write(json_encode([ 'status'  => 'error', 'message' => 'Mismatched file count.' ]));
 
         return $response->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);    
     }
@@ -216,3 +218,248 @@ $app->post('/play', function (Request $request, Response $response, array $args)
     $response->getBody()->write(json_encode($result ? ['auth_code' => $authCode] : ['error' => 'Failed to update session.']));
     return $response->withStatus($result ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR)->withHeader('Content-Type', 'application/json');
 })->add($authenticationMiddleware);
+
+$app->get('/admins', function (Request $request, Response $response, array $args) use ($gameDb) {
+    $playerAccountStmt = $gameDb->prepare('SELECT * FROM Admins ORDER BY level DESC');
+
+    $result = $playerAccountStmt->execute();
+
+    if(!$result) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
+
+    $humanReadable = $request->getQueryParams()['human'] !== null;
+
+    $admins = [];
+    while($admin = $result->fetchArray(SQLITE3_ASSOC)) {
+        if($humanReadable) 
+            $admin['level'] = $admin['level'] = ['AJUDANTE', 'MODERADOR', 'ADMINISTRADOR', 'LIDER ADMIN', 'DEV'][$admin['level'] - 1] ?? 'UNKNOWN';
+
+        // $admin['account'] = getPlayerAccount($admin['name'], null, $humanReadable);
+        $admins[$admin['name']]['level'] = $admin['level'];
+
+        // Pode ter admin mas a conta pode nao existir...
+        $account = getPlayerAccount($admin['name'], ['language', 'lastLog'], $humanReadable);
+
+        if($account) $admins[$admin['name']] = array_merge($admins[$admin['name']], $account);
+    }
+
+    $response->getBody()->write(json_encode($admins));
+    return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
+});
+
+$app->get('/player/{name}[/{column}]', function (Request $request, Response $response, array $args) {
+    $column        = $args['column'] ?? null;
+    $humanReadable = $request->getQueryParams()['human'] !== null;
+
+    $playerAccount = getPlayerAccount($args['name'], $column ? [$column] : null, $humanReadable);
+
+    if (!$playerAccount) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
+
+    $bans = getPlayerBans($args['name'], $humanReadable);
+
+    if($bans) $playerAccount['bans'] = $bans;
+
+    $response->getBody()->write(json_encode($playerAccount));
+    return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
+});
+
+$app->get('/aliases/{name}[/{type}]', function (Request $request, Response $response, array $args) use ($gameDb) {
+    $name = $args['name'];
+    $type = $args['type'] ?? 'all';
+
+    // Step 1: Fetch player details
+    $stmt = $gameDb->prepare('SELECT ipv4, pass, gpci FROM players WHERE name = :name COLLATE NOCASE');
+    $stmt->bindValue(':name', $name);
+    $result = $stmt->execute();
+
+    $playerDetails = $result->fetchArray(SQLITE3_ASSOC);
+    
+    if (!$playerDetails) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
+
+    // Step 2: Use player details to query aliases based on type
+    $query = 'SELECT name FROM players WHERE name != :name COLLATE NOCASE AND ';
+    $queryParams = [':name' => $name];
+
+    switch ($type) {
+        case 'ip':
+            $query .= 'ipv4 = :ipv4';
+            $queryParams[':ipv4'] = $playerDetails['ipv4'];
+            break;
+        case 'password':
+            $query .= 'pass = :pass';
+            $queryParams[':pass'] = $playerDetails['pass'];
+            break;
+        case 'gpci':
+            $query .= 'gpci = :gpci';
+            $queryParams[':gpci'] = $playerDetails['gpci'];
+            break;
+        default:
+            $query .= '(pass = :pass OR ipv4 = :ipv4 OR gpci = :gpci)';
+            $queryParams[':ipv4'] = $playerDetails['ipv4'];
+            $queryParams[':pass'] = $playerDetails['pass'];
+            $queryParams[':gpci'] = $playerDetails['gpci'];
+            break;
+    }
+
+    $aliasesStmt = $gameDb->prepare($query);
+    foreach ($queryParams as $param => $value) $aliasesStmt->bindValue($param, $value);
+    
+    $result = $aliasesStmt->execute();
+
+    $aliases = [];
+    while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+        $alias = $row['name'];
+
+        $humanReadable = $request->getQueryParams()['human'] !== null;
+
+        $banData     = getPlayerBans($alias, $humanReadable);
+        $accountData = getPlayerAccount($alias, null, $humanReadable);
+    
+        // If ban data exists, add it
+        if ($banData) $aliases[$alias]['bans'] = $banData;
+    
+        // Merge account data after the potential 'ban' key
+        if ($accountData) $aliases[$alias] = array_merge($aliases[$alias] ?? [], $accountData);
+    }
+
+    $response->getBody()->write(json_encode($aliases, JSON_INVALID_UTF8_IGNORE));
+    return $response->withHeader('Content-Type', 'application/json');
+});
+
+$app->get('/bans', function (Request $request, Response $response, array $args) use ($gameDb) {
+    $humanReadable = $request->getQueryParams()['human'] !== null;
+
+    $result = $gameDb->query('SELECT name, date, reason, by, duration, active FROM Bans;');
+
+    $banData = [];
+
+    while($ban = $result->fetchArray(SQLITE3_ASSOC)) {
+        $name = $ban['name'];
+        unset($ban['name']);
+
+        if(empty(preg_replace('/[[:^print:]]/', '', $ban['reason']))) unset($ban['reason']);
+
+        if($humanReadable) {
+            $ban['active'] = $ban['active'] ? true : false;
+            
+            foreach(['date', 'duration'] as $column) $ban[$column] = $ban[$column] ? date('H:i:s d-m-Y', $ban[$column]) : null;
+        }
+
+        $banData[$name] = $ban;
+    }
+
+    $response->getBody()->write(json_encode($banData));
+    return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
+});
+
+function isValidHWID($hwid) {
+    return preg_match('/^[a-fA-F0-9]{64}$/', $hwid) === 1;
+}
+
+function getPlayerBans(string $name, bool $humanReadable = false): bool|array {
+    global $gameDb;
+
+    // Fetch both active and inactive bans
+    $banStmt = $gameDb->prepare('SELECT date, reason, by, duration, active FROM Bans WHERE name = :name COLLATE NOCASE ORDER BY date DESC;');
+    $banStmt->bindValue(':name', $name);
+
+    $result = $banStmt->execute();
+
+    if (!$result) return false;
+
+    $activeBan    = null;
+    $inactiveBans = [];
+
+    while ($ban = $result->fetchArray(SQLITE3_ASSOC)) {
+        // Remove 'active' key as we don't need it anymore
+        $isActive = (bool) $ban['active'];
+        unset($ban['active']);
+
+        $ban['reason'] = preg_replace('/[[:^print:]]/', '', $ban['reason']);
+        if (empty($ban['reason'])) unset($ban['reason']);
+
+        if($humanReadable) foreach(['date', 'duration'] as $column) $ban[$column] = $ban[$column] ? date('H:i:s d-m-Y', $ban[$column]) : null;
+
+        if ($isActive)
+            $activeBan = $ban;
+        else
+            $inactiveBans[] = $ban;
+    }
+
+    $bans = [];
+    if ($activeBan !== null) $bans = $activeBan;  // As there is ever only one active ban, get the first one
+
+    if (!empty($inactiveBans)) $bans['inactive_bans'] = $inactiveBans;
+
+    return empty($bans) ? false : $bans;
+}
+
+function getPlayerAccount(string $name, ?array $columns = null, bool $humanReadable = false): bool|array {
+    global $gameDb;
+
+    $allowedColumns  = [
+        'language',
+        'alive',
+        'regDate',
+        'lastLog',
+        'spawnTime',
+        'totalSpawns',
+        'warnings',
+        'joinSentence',
+        'clan',
+        'vip',
+        'kills',
+        'deaths',
+        'aliveTime',
+        'active'
+    ];
+    $selectedColumns = '';
+
+    if ($columns) {
+        // Filter the user-provided columns against the allowed list
+        $filteredColumns = array_filter($columns, function($column) use ($allowedColumns) {
+            return in_array($column, $allowedColumns);
+        });
+
+        if (!empty($filteredColumns)) // Output only the valid columns found
+            $selectedColumns = implode(', ', $filteredColumns);
+        else // No valid columns so just output everything
+            $selectedColumns = implode(', ', $allowedColumns);
+    } else
+        $selectedColumns = implode(', ', $allowedColumns);
+
+    $playerAccountStmt = $gameDb->prepare("SELECT $selectedColumns FROM players WHERE name = :name;");
+    $playerAccountStmt->bindValue(':name', $name);
+
+    $result = $playerAccountStmt->execute();
+
+    if($result) {
+        $playerAccount = $result->fetchArray(SQLITE3_ASSOC);
+
+        foreach($playerAccount as $column => $value) if(empty($value)) unset($playerAccount[$column]);
+        
+        if ($humanReadable) {
+            if(isset($playerAccount['language'])) $playerAccount['language'] = $playerAccount['language'] ? 'EN' : 'PT';
+
+            if(isset($playerAccount['vip'])) $playerAccount['vip'] = ['COPPER', 'SILVER', 'GOLD'][$playerAccount['vip'] - 1] ?? 'UNKNOWN';
+
+            // Booleans
+            foreach(['alive', 'active'] as $boolColumn) {
+                if(isset($playerAccount[$boolColumn]))
+                    $playerAccount[$boolColumn] = $playerAccount[$boolColumn] ? true : false;
+            }
+
+            // Timestamps
+            foreach (['regDate', 'lastLog', 'spawnTime'] as $dateColumn) {
+                if (isset($playerAccount[$dateColumn]))
+                    $playerAccount[$dateColumn] = date('H:i:s d-m-Y', $playerAccount[$dateColumn]);
+            }
+
+            // Time-only
+            if(isset($playerAccount['aliveTime'])) $playerAccount['aliveTime'] = date('H:i:s', $playerAccount['aliveTime']);
+        }
+
+        return $playerAccount;
+    }
+
+    return false;
+}
