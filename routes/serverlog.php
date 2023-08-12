@@ -58,7 +58,7 @@ $app->get('/serverlog[/{lineCount}]', function (Request $request, Response $resp
     }
 
     function tagToColor($tag) {
-        if (!ctype_upper($tag)) return '000000';
+        // if (!ctype_upper($tag)) return '000000';
         $hash = crc32($tag);
         $color = dechex($hash & 0xffffff);
         while (strlen($color) < 6) $color = '0' . $color;
@@ -77,9 +77,8 @@ $app->get('/serverlog[/{lineCount}]', function (Request $request, Response $resp
             display: flex; 
             align-items: center; 
             padding: 6px 0;
-            transition: background-color 0.3s;
             opacity: 0;
-            transition: opacity 0.5s;
+            transition: background-color 0.3s, opacity 1s;
         }
         .log-entry.visible { 
             opacity: 1;
