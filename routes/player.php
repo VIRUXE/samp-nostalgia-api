@@ -1,5 +1,4 @@
 <?php
-
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Fig\Http\Message\StatusCodeInterface;
@@ -88,13 +87,7 @@ $app->post('/logout', function (Request $request, Response $response, array $arg
     return $response->withStatus($db->changes() > 0 ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
 })->add($authenticationMiddleware);
 
-$app->post('/ping', function (Request $request, Response $response) use ($db) {
-    $stmt = $db->prepare("UPDATE sessions SET last_active = strftime('%s', 'now') WHERE token = :token");
-    $stmt->bindValue(':token', $request->getAttribute('token'));
-    $stmt->execute();
 
-    return $response->withStatus($db->changes() > 0 ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
-})->add($authenticationMiddleware);
 
 $app->post('/play', function (Request $request, Response $response, array $args) use ($db) {
     $gtaSnapshotPath = '../gta_fs_cache.json';
