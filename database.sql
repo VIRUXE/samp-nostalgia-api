@@ -37,8 +37,18 @@ CREATE TABLE messages (
 
 CREATE TABLE session_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_name TEXT NOT NULL,
+    session TEXT NOT NULL,
     level TEXT NOT NULL,
     action TEXT NOT NULL,
     timestamp INTEGER NOT NULL
 );
+
+CREATE TABLE expected_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session TEXT NOT NULL,
+    actionType TEXT NOT NULL,
+    issuedAt INTEGER,
+    respondedAt INTEGER
+);
+
+INSERT INTO expected_responses (session, actionType, issuedAt) VALUES (:token, :actionType, strftime('%s', 'now'));
