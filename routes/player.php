@@ -219,7 +219,7 @@ $app->get('/admins', function (Request $request, Response $response, array $args
 
     if(!$result) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
 
-    $humanReadable = $request->getQueryParams()['human'] !== null;
+    $humanReadable = isset($request->getQueryParams()['human']);
 
     $admins = [];
     while($admin = $result->fetchArray(SQLITE3_ASSOC)) {
@@ -239,23 +239,21 @@ $app->get('/admins', function (Request $request, Response $response, array $args
     return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
 });
 
-$app->get('/player/{name}[/{column}]', function (Request $request, Response $response, array $args) {
+$app->get('/player/profile/{name}[/{column}]', function (Request $request, Response $response, array $args) {
     $column        = $args['column'] ?? null;
-    $humanReadable = $request->getQueryParams()['human'] !== null;
+    $humanReadable = isset($request->getQueryParams()['human']);
 
     $playerAccount = getPlayerAccount($args['name'], $column ? [$column] : null, $humanReadable);
 
-    if (!$playerAccount) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
+    if(!$playerAccount) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
 
-    $bans = getPlayerBans($args['name'], $humanReadable);
-
-    if($bans) $playerAccount['bans'] = $bans;
+    if($bans = getPlayerBans($args['name'], $humanReadable)) $playerAccount['bans'] = $bans;
 
     $response->getBody()->write(json_encode($playerAccount));
     return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
 });
 
-$app->get('/aliases/{name}[/{type}]', function (Request $request, Response $response, array $args) use ($gameDb) {
+$app->get('/player/aliases/{name}[/{type}]', function (Request $request, Response $response, array $args) use ($gameDb) {
     $name = $args['name'];
     $type = $args['type'] ?? 'all';
 
@@ -302,7 +300,7 @@ $app->get('/aliases/{name}[/{type}]', function (Request $request, Response $resp
     while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
         $alias = $row['name'];
 
-        $humanReadable = $request->getQueryParams()['human'] !== null;
+        $humanReadable = isset($request->getQueryParams()['human']);
 
         $banData     = getPlayerBans($alias, $humanReadable);
         $accountData = getPlayerAccount($alias, null, $humanReadable);
@@ -319,7 +317,7 @@ $app->get('/aliases/{name}[/{type}]', function (Request $request, Response $resp
 });
 
 $app->get('/bans', function (Request $request, Response $response, array $args) use ($gameDb) {
-    $humanReadable = $request->getQueryParams()['human'] !== null;
+    $humanReadable = isset($request->getQueryParams()['human']);
 
     $result = $gameDb->query('SELECT name, date, reason, by, duration, active FROM Bans;');
 
