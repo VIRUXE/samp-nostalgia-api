@@ -23,15 +23,15 @@ $app->addRoutingMiddleware();
 $app->addErrorMiddleware(true, true, true);
 
 $app->add(function (Request $request, RequestHandler $handler): Response {
-    $uri = $request->getUri();
+    $uri  = $request->getUri();
     $path = $uri->getPath();
+
     if ($path != '/' && substr($path, -1) == '/') {
-        // Remove the trailing slash
-        $uri = $uri->withPath(substr($path, 0, -1));
+        $uri = $uri->withPath(substr($path, 0, -1)); // Remove the trailing slash
         
         // Use a 301 redirect to redirect to the non-trailing slash URL
         $response = new \Slim\Psr7\Response();
-        return $response->withHeader('Location', (string)$uri)->withStatus(301);
+        return $response->withHeader('Location', (string)$uri)->withStatus(StatusCodeInterface::STATUS_MOVED_PERMANENTLY);
     }
     
     return $handler->handle($request);
