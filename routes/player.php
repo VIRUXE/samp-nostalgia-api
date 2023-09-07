@@ -3,7 +3,7 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Fig\Http\Message\StatusCodeInterface;
 
-$app->post('/login', function (Request $request, Response $response, array $args) use ($db, $gameDb) {
+$app->post('/player/login', function (Request $request, Response $response, array $args) use ($db, $gameDb) {
     // if ($request->getHeaderLine('User-Agent') !== 'NostalgiaLauncher') return $response->withStatus(StatusCodeInterface::STATUS_FORBIDDEN);
 
     // Check if Authorization header is set
@@ -52,10 +52,11 @@ $app->post('/login', function (Request $request, Response $response, array $args
         if(!isValidHWID($loginData['serial'])) return $response->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);
 
         // Store the new token into the database without generating "auth_code" here
-        $newSessionStmt = $db->prepare('INSERT INTO sessions (token, player_name, hwid) VALUES (:token, :nickname, :hwid)');
+        $newSessionStmt = $db->prepare('INSERT INTO sessions (token, player_name, hwid, gpci) VALUES (:token, :nickname, :hwid, :gpci)');
         $newSessionStmt->bindValue(':token', $token);
         $newSessionStmt->bindValue(':nickname', $loginData['nickname']);
         $newSessionStmt->bindValue(':hwid', $loginData['serial']);
+        $newSessionStmt->bindValue(':gpci', $loginData['gpci']);
 
         if($newSessionStmt->execute()) {
             $response = $response->withHeader('Authorization', 'Bearer ' . $token);
@@ -79,7 +80,7 @@ $app->post('/login', function (Request $request, Response $response, array $args
         return $response->withStatus(StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
 });
 
-$app->post('/logout', function (Request $request, Response $response, array $args) use ($db) {
+$app->post('/player/logout', function (Request $request, Response $response, array $args) use ($db) {
     $stmt = $db->prepare("UPDATE sessions SET logged_out = strftime('%s', 'now') WHERE token = :token");
     $stmt->bindValue(':token', $request->getAttribute('token'));
     $stmt->execute();
@@ -87,9 +88,18 @@ $app->post('/logout', function (Request $request, Response $response, array $arg
     return $response->withStatus($db->changes() > 0 ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
 })->add($authenticationMiddleware);
 
+$app->post('/player/ping', function (Request $request, Response $response) use ($db) {
+    if($request->getAttribute('player_level')) return $response->withStatus(StatusCodeInterface::STATUS_OK); // Ignore admins
 
+    $pingData = $request->getParsedBody();
 
-$app->post('/play', function (Request $request, Response $response, array $args) use ($db) {
+    // We need what we need
+    if (!isset($pingData['windows']) || !isset($pingData['modules'])) return $response->withHeader('Content-Type', 'application/json')->withStatus(StatusCodeInterface::STATUS_BAD_REQUEST);
+
+    return $response->withStatus(StatusCodeInterface::STATUS_OK);
+})->add($authenticationMiddleware);
+
+$app->post('/player/play', function (Request $request, Response $response, array $args) use ($db) {
     $gtaSnapshotPath = '../gta_fs_cache.json';
     $gtaSnapshot     = [];
 
@@ -212,32 +222,6 @@ $app->post('/play', function (Request $request, Response $response, array $args)
     return $response->withStatus($result ? StatusCodeInterface::STATUS_OK : StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR)->withHeader('Content-Type', 'application/json');
 })->add($authenticationMiddleware);
 
-$app->get('/admins', function (Request $request, Response $response, array $args) use ($gameDb) {
-    $playerAccountStmt = $gameDb->prepare('SELECT * FROM Admins ORDER BY level DESC');
-
-    $result = $playerAccountStmt->execute();
-
-    if(!$result) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
-
-    $humanReadable = isset($request->getQueryParams()['human']);
-
-    $admins = [];
-    while($admin = $result->fetchArray(SQLITE3_ASSOC)) {
-        if($humanReadable) 
-            $admin['level'] = $admin['level'] = ['AJUDANTE', 'MODERADOR', 'ADMINISTRADOR', 'LIDER ADMIN', 'DEV'][$admin['level'] - 1] ?? 'UNKNOWN';
-
-        // $admin['account'] = getPlayerAccount($admin['name'], null, $humanReadable);
-        $admins[$admin['name']]['level'] = $admin['level'];
-
-        // Pode ter admin mas a conta pode nao existir...
-        $account = getPlayerAccount($admin['name'], ['language', 'lastLog'], $humanReadable);
-
-        if($account) $admins[$admin['name']] = array_merge($admins[$admin['name']], $account);
-    }
-
-    $response->getBody()->write(json_encode($admins));
-    return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
-});
 
 $app->get('/player/profile/{name}[/{column}]', function (Request $request, Response $response, array $args) {
     $column        = $args['column'] ?? null;
@@ -339,6 +323,33 @@ $app->get('/bans', function (Request $request, Response $response, array $args) 
     }
 
     $response->getBody()->write(json_encode($banData));
+    return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
+});
+
+$app->get('/admins', function (Request $request, Response $response, array $args) use ($gameDb) {
+    $playerAccountStmt = $gameDb->prepare('SELECT * FROM Admins ORDER BY level DESC');
+
+    $result = $playerAccountStmt->execute();
+
+    if(!$result) return $response->withStatus(StatusCodeInterface::STATUS_NOT_FOUND);
+
+    $humanReadable = isset($request->getQueryParams()['human']);
+
+    $admins = [];
+    while($admin = $result->fetchArray(SQLITE3_ASSOC)) {
+        if($humanReadable) 
+            $admin['level'] = $admin['level'] = ['AJUDANTE', 'MODERADOR', 'ADMINISTRADOR', 'LIDER ADMIN', 'DEV'][$admin['level'] - 1] ?? 'UNKNOWN';
+
+        // $admin['account'] = getPlayerAccount($admin['name'], null, $humanReadable);
+        $admins[$admin['name']]['level'] = $admin['level'];
+
+        // Pode ter admin mas a conta pode nao existir...
+        $account = getPlayerAccount($admin['name'], ['language', 'lastLog'], $humanReadable);
+
+        if($account) $admins[$admin['name']] = array_merge($admins[$admin['name']], $account);
+    }
+
+    $response->getBody()->write(json_encode($admins));
     return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
 });
 
