@@ -44,10 +44,10 @@ $userAgentMiddleware = function (Request $request, RequestHandler $handler): Res
 };
 
 // Middleware that makes sure the Auth Token is set
-$authenticationMiddleware = function (Request $request, RequestHandler $handler) use ($db, $gameDb) {
+$authenticationMiddleware = function(Request $request, RequestHandler $handler) use ($db, $gameDb) {
     $authHeader = $request->getHeaderLine('Authorization');
     
-    if (!$authHeader) {
+    if(!$authHeader) {
         $response = new \Slim\Psr7\Response();
         $response->getBody()->write(json_encode(['error' => 'No token provided']));
         return $response->withStatus(StatusCodeInterface::STATUS_UNAUTHORIZED);
@@ -81,7 +81,7 @@ $authenticationMiddleware = function (Request $request, RequestHandler $handler)
     $interval = $currentDateTime->diff($lastActiveTime);
     
     // Check if the difference is more than one minute
-    /* if ($interval->i >= 1 || $interval->h > 0 || $interval->d > 0 || $interval->y > 0) {
+    if ($interval->i >= 1 || $interval->h > 0 || $interval->d > 0 || $interval->y > 0) {
         // Update the logged_out field to close the session
         $logoutStmt = $db->prepare("UPDATE sessions SET logged_out = strftime('%s', 'now') WHERE token = :token");
         $logoutStmt->bindValue(':token', $token);
@@ -90,7 +90,7 @@ $authenticationMiddleware = function (Request $request, RequestHandler $handler)
         $response = new \Slim\Psr7\Response();
         $response->getBody()->write(json_encode(['error' => 'Last active session is more than a minute old']));
         return $response->withStatus(StatusCodeInterface::STATUS_EXPECTATION_FAILED);
-    } */
+    }
 
     // Get the admin level if any
     $playerLevelStmt = $gameDb->prepare('SELECT level FROM Admins WHERE name = :name;');
