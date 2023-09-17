@@ -20,7 +20,7 @@ $app->post('/player/login', function (Request $request, Response $response, arra
     if($loginData['version'] != VERSION) return $response->withStatus(StatusCodeInterface::STATUS_VERSION_NOT_SUPPORTED);
 
     // Get account data    
-    $playerStmt = $gameDb->prepare('SELECT ipv4, lastLog, active FROM players WHERE name = :nickname AND pass = :password');
+    $playerStmt = $gameDb->prepare('SELECT ipv4, alive, regDate, lastLog, spawnTime, totalSpawns, warnings, joinSentence, clan, vip, kills, deaths, aliveTime, coins, active FROM players WHERE name = :nickname AND pass = :password');
     $playerStmt->bindValue(':nickname', $loginData['nickname']);
     $playerStmt->bindValue(':password', strtoupper(hash('whirlpool', $loginData['password'])));
 
@@ -62,9 +62,22 @@ $app->post('/player/login', function (Request $request, Response $response, arra
             $response = $response->withHeader('Authorization', 'Bearer ' . $token);
             
             $response->getBody()->write(json_encode([
-                'token'   => $token,
-                'ipv4'    => long2ip($accountData['ipv4']),
-                'lastLog' => date("H:i:s d-m-Y", $accountData['lastLog'])
+                'token'        => $token,
+                'lastIp'       => long2ip($accountData['ipv4']),
+                'alive'        => (string)$accountData['alive'],
+                'regDate'      => date("H:i:s d-m-Y", $accountData['regDate']),
+                'lastLog'      => date("H:i:s d-m-Y", $accountData['lastLog']),
+                'spawnTime'    => date("H:i:s d-m-Y", $accountData['spawnTime']),
+                'totalSpawns'  => (string)$accountData['totalSpawns'],
+                'warnings'     => (string)$accountData['warnings'],
+                'joinSentence' => $accountData['joinSentence'],
+                'clan'         => $accountData['clan'],
+                'vip'          => (string)$accountData['vip'],
+                'kills'        => (string)$accountData['kills'],
+                'deaths'       => (string)$accountData['deaths'],
+                'aliveTime'    => (string)$accountData['aliveTime'],
+                'coins'        => (string)$accountData['coins'],
+                'active'       => (string)$accountData['active']
             ]));
 
             return $response->withStatus(StatusCodeInterface::STATUS_OK)->withHeader('Content-Type', 'application/json');
