@@ -160,7 +160,7 @@ $app->get('/', function (Request $request, Response $response, $args) {
             <div class=\"container\">
                 <h2>{$currentTranslations['title']}</h2>
                 <p>{$currentTranslations['description']}</p>
-                <a href=\"/download\" class=\"btn\">{$currentTranslations['download']}</a>
+                <a href=\"/launcher\" class=\"btn\">{$currentTranslations['download']}</a>
             </div>
         </body>
         </html>
@@ -170,8 +170,8 @@ $app->get('/', function (Request $request, Response $response, $args) {
     return $response->withHeader('Content-Type', 'text/html');
 });
 
-$app->get('/download', function (Request $request, Response $response, $args) {
-    $file = __DIR__ . '/nostalgia.zip';
+$app->get('/launcher', function (Request $request, Response $response, $args) {
+    $file = __DIR__ . '/nostalgia.exe';
     
     if (!file_exists($file)) throw new HttpNotFoundException($request);
 
@@ -184,8 +184,6 @@ $app->get('/download', function (Request $request, Response $response, $args) {
 
 // Manifest specially to update the windows app
 $app->get('/manifest', function (Request $request, Response $response, array $args) {
-    $baseUrl = str_replace('manifest', '', (string)$request->getUri());
-
     // Extract major, minor, patch, and additional version components
     $versionComponents = explode('.', VERSION);
     $additional = null;
@@ -200,8 +198,8 @@ $app->get('/manifest', function (Request $request, Response $response, array $ar
             'additional' => $additional
         ],
         'release_notes' => 'Updated anti-cheat algorithms. Fixed minor bugs.',
-        'hash'          => sha1_file(__DIR__ . '/nostalgia.zip'),
-        'url'           => $baseUrl
+        'hash'          => sha1_file(__DIR__ . '/nostalgia.exe'),
+        'url'           => (string)$request->getUri()->withPath("/launcher")
     ];
 
     $response->getBody()->write(json_encode($manifest));
