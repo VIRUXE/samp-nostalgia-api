@@ -175,15 +175,17 @@ $app->get('/launcher', function (Request $request, Response $response, $args) {
     
     if (!file_exists($file)) throw new HttpNotFoundException($request);
 
+    $fileSize = filesize($file);
     $response->getBody()->write(file_get_contents($file));
 
     return $response
         ->withHeader('Content-Type', 'application/octet-stream')
-        ->withHeader('Content-Disposition', 'attachment; filename="' . basename($file) . '"');
+        ->withHeader('Content-Disposition', 'attachment; filename="' . basename($file) . '"')
+        ->withHeader('Content-Length', $fileSize);
 });
 
 // Manifest specially to update the windows app
-$app->get('/manifest', function (Request $request, Response $response, array $args) {
+$app->get('/launcher/manifest', function (Request $request, Response $response, array $args) {
     // Extract major, minor, patch, and additional version components
     $versionComponents = explode('.', VERSION);
     $additional = null;
