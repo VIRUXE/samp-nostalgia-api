@@ -55,5 +55,7 @@ $app->get('/game/download[/{path:.+}]', function (Request $request, Response $re
 
     return $response->withHeader('Content-Type', 'application/octet-stream')
         ->withHeader('Content-Disposition', 'attachment; filename=' . $fileInfo->getBasename())
+        ->withHeader('Content-Length', $fileInfo->getSize())
+        ->withHeader('Last-Modified', gmdate('D, d M Y H:i:s', $fileInfo->getMTime()) . ' GMT')
         ->withBody($stream);
 });
